@@ -48,6 +48,16 @@ def get_printer():
 def format_ticket(printer, from_name, question):
     """Format and print the ticket"""
     try:
+        # Set codepage for Cyrillic support (CP866 is most common for thermal printers)
+        try:
+            printer.charcode('CP866')
+        except Exception:
+            # Fallback: try alternative Cyrillic codepages
+            try:
+                printer.charcode('CP1251')
+            except Exception:
+                logger.warning("Could not set Cyrillic codepage, using default")
+
         now = datetime.now()
         time_str = now.strftime("%I:%M %p")
         date_str = now.strftime("%B %d, %Y")
