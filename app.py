@@ -156,20 +156,61 @@ def create_ticket_image(from_name, question, width=384):
 
 
 def format_ticket(printer, from_name, question):
-    """Format and print the ticket as image for Cyrillic support"""
+    """Format and print the ticket with Cyrillic support via raw ESC/POS commands"""
     try:
-        img = create_ticket_image(from_name, question)
+        now = datetime.now()
+        time_str = now.strftime("%H:%M")
+        date_str = now.strftime("%d.%m.%Y")
 
-        # Try different image implementations
-        try:
-            printer.image(img, impl='bitImageRaster')
-        except Exception:
+        # Try to set Cyrillic codepage via raw ESC/POS command
+        # ESC t n - select character code table
+        # Try different codepage numbers for Cyrillic:
+        # 17 = CP866 (DOS Cyrillic)
+        # 46 = CP1251 (Windows Cyrillic)
+        # 6 = ISO-8859-5
+        for codepage in [17, 46, 6, 38, 39, 40]:
             try:
-                printer.image(img, impl='bitImageColumn')
+                printer._raw(bytes([0x1B, 0x74, codepage]))  # ESC t n
+                logger.info(f"Set codepage to {codepage}")
+                break
             except Exception:
-                printer.image(img)
+                continue
 
-        printer.text("\n")
+        # Print ticket
+        printer.set(align='center', font='a', width=2, height=2, bold=True)
+        printer.text("TICKET\n")
+
+        printer.set(align='center', font='a', width=1, height=1, bold=False)
+        printer.text("================================\n")
+
+        printer.set(align='left', font='a', width=1, height=1, bold=True)
+        # Encode text to CP866 and send
+        try:
+            from_text = f"От: {from_name}\n"
+            printer._raw(from_text.encode('cp866', errors='replace'))
+        except Exception:
+            printer.text(f"From: {from_name}\n")
+
+        printer.set(align='left', font='a', width=1, height=1, bold=False)
+        printer.text(f"Vremya: {time_str}\n")
+        printer.text(f"Data: {date_str}\n")
+
+        printer.text("--------------------------------\n")
+
+        printer.set(align='left', font='a', width=1, height=1, bold=True)
+        try:
+            printer._raw("Сообщение:\n".encode('cp866', errors='replace'))
+        except Exception:
+            printer.text("Message:\n")
+
+        printer.set(align='left', font='a', width=1, height=1, bold=False)
+        try:
+            printer._raw(f"{question}\n".encode('cp866', errors='replace'))
+        except Exception:
+            printer.text(f"{question}\n")
+
+        printer.text("================================\n")
+        printer.text("\n\n")
         printer.cut()
 
         return True
