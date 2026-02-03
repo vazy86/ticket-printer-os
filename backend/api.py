@@ -7,7 +7,7 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 from datetime import datetime
 import logging
-from escpos.printer import Usb, Serial, Network
+from escpos.printer import Usb, Serial, Network, Win32Raw
 import os
 
 # Configure logging
@@ -18,11 +18,12 @@ app = Flask(__name__)
 CORS(app)  # Enable CORS for frontend on different domain
 
 # Configuration
-PRINTER_TYPE = os.getenv('PRINTER_TYPE', 'usb')  # 'usb', 'serial', 'network', or 'bluetooth'
+PRINTER_TYPE = os.getenv('PRINTER_TYPE', 'usb')  # 'usb', 'serial', 'network', 'bluetooth', or 'windows'
 USB_VENDOR = int(os.getenv('USB_VENDOR', '0x0416'), 16) if os.getenv('USB_VENDOR') else None
 USB_PRODUCT = int(os.getenv('USB_PRODUCT', '0x5011'), 16) if os.getenv('USB_PRODUCT') else None
 SERIAL_PORT = os.getenv('SERIAL_PORT', '/dev/ttyUSB0')  # Default serial port
 NETWORK_HOST = os.getenv('NETWORK_HOST', '192.168.1.100')
+WINDOWS_PRINTER_NAME = os.getenv('WINDOWS_PRINTER_NAME', '')  # Windows printer name (e.g., 'NPI NP-F309')
 
 def get_printer():
     """Initialize and return the printer based on configuration"""
@@ -39,6 +40,10 @@ def get_printer():
             return Serial(devfile=port, baudrate=9600)
         elif PRINTER_TYPE == 'network':
             return Network(NETWORK_HOST)
+        elif PRINTER_TYPE == 'windows':
+            if not WINDOWS_PRINTER_NAME:
+                raise ValueError("WINDOWS_PRINTER_NAME environment variable is required for Windows printer")
+            return Win32Raw(WINDOWS_PRINTER_NAME)
         else:
             raise ValueError(f"Unknown printer type: {PRINTER_TYPE}")
     except Exception as e:
