@@ -169,7 +169,7 @@ def create_ticket_image(from_name, question, width=384):
 
 
 def print_ticket_windows_gdi(printer_name, from_name, question):
-    """Print ticket using Windows GDI API with full Cyrillic support"""
+    """Print ticket using Windows GDI API with full Cyrillic support (like Notepad)"""
     if not WINDOWS_GDI_AVAILABLE:
         raise Exception("Windows GDI printing not available")
 
@@ -177,40 +177,61 @@ def print_ticket_windows_gdi(printer_name, from_name, question):
     time_str = now.strftime("%H:%M")
     date_str = now.strftime("%d.%m.%Y")
 
-    # Create the ticket text
-    ticket_text = f"""
-================================
-           TICKET
-================================
+    # Create the ticket lines
+    lines = [
+        "================================",
+        "           TICKET",
+        "================================",
+        "",
+        f"От: {from_name}",
+        f"Время: {time_str}",
+        f"Дата: {date_str}",
+        "",
+        "--------------------------------",
+        "Сообщение:",
+        "",
+    ]
 
-От: {from_name}
-Время: {time_str}
-Дата: {date_str}
+    # Wrap question text
+    wrapper = textwrap.TextWrapper(width=32)
+    question_lines = wrapper.wrap(question) if question else [""]
+    lines.extend(question_lines)
 
---------------------------------
-Сообщение:
+    lines.extend([
+        "",
+        "================================",
+        "",
+        "",
+    ])
 
-{question}
+    # Create a device context for the printer
+    hdc = win32ui.CreateDC()
+    hdc.CreatePrinterDC(printer_name)
 
-================================
+    # Start the document
+    hdc.StartDoc("Ticket")
+    hdc.StartPage()
 
+    # Create a font (Courier New for monospace, supports Cyrillic)
+    font = win32ui.CreateFont({
+        "name": "Courier New",
+        "height": 32,
+        "weight": 400,
+    })
+    hdc.SelectObject(font)
 
-"""
+    # Print each line
+    y = 10
+    line_height = 36
 
-    # Get printer handle
-    hprinter = win32print.OpenPrinter(printer_name)
-    try:
-        # Start a print job
-        job_info = win32print.StartDocPrinter(hprinter, 1, ("Ticket", None, "RAW"))
-        try:
-            win32print.StartPagePrinter(hprinter)
-            # Send text encoded as UTF-8 or CP1251
-            win32print.WritePrinter(hprinter, ticket_text.encode('cp1251', errors='replace'))
-            win32print.EndPagePrinter(hprinter)
-        finally:
-            win32print.EndDocPrinter(hprinter)
-    finally:
-        win32print.ClosePrinter(hprinter)
+    for line in lines:
+        hdc.TextOut(10, y, line)
+        y += line_height
+
+    # End the page and document
+    hdc.EndPage()
+    hdc.EndDoc()
+    hdc.DeleteDC()
 
     return True
 
