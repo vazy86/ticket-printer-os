@@ -114,23 +114,35 @@ def submit_ticket():
         data = request.json
         from_name = data.get('from_name', 'Anonymous')
         question = data.get('question', '')
-        
+
         if not question.strip():
             return jsonify({'success': False, 'error': 'Question/Comment cannot be empty'}), 400
-        
+
         printer = get_printer()
-        
+
         if printer is None:
             return jsonify({'success': False, 'error': 'Printer not available'}), 500
-        
-        success = format_ticket(printer, from_name, question)
-        
+
+        try:
+            # Open printer job (required for Windows printer)
+            if PRINTER_TYPE == 'windows':
+                printer.open()
+
+            success = format_ticket(printer, from_name, question)
+
+            # Close printer job
+            if PRINTER_TYPE == 'windows':
+                printer.close()
+        except Exception as e:
+            logger.error(f"Printer operation failed: {e}")
+            success = False
+
         if success:
             logger.info(f"Ticket printed successfully from: {from_name}")
             return jsonify({'success': True, 'message': 'Ticket printed successfully'})
         else:
             return jsonify({'success': False, 'error': 'Failed to print ticket'}), 500
-            
+
     except Exception as e:
         logger.error(f"Error processing ticket submission: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
