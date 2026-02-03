@@ -9,6 +9,19 @@ from escpos.printer import Usb, Serial, Network, Win32Raw
 from PIL import Image, ImageDraw, ImageFont
 import os
 import textwrap
+import sys
+
+# Windows-specific imports for GDI printing
+if sys.platform == 'win32':
+    try:
+        import win32print
+        import win32ui
+        from PIL import ImageWin
+        WINDOWS_GDI_AVAILABLE = True
+    except ImportError:
+        WINDOWS_GDI_AVAILABLE = False
+else:
+    WINDOWS_GDI_AVAILABLE = False
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -155,26 +168,59 @@ def create_ticket_image(from_name, question, width=384):
     return img
 
 
+def print_ticket_windows_gdi(printer_name, from_name, question):
+    """Print ticket using Windows GDI API with full Cyrillic support"""
+    if not WINDOWS_GDI_AVAILABLE:
+        raise Exception("Windows GDI printing not available")
+
+    now = datetime.now()
+    time_str = now.strftime("%H:%M")
+    date_str = now.strftime("%d.%m.%Y")
+
+    # Create the ticket text
+    ticket_text = f"""
+================================
+           TICKET
+================================
+
+От: {from_name}
+Время: {time_str}
+Дата: {date_str}
+
+--------------------------------
+Сообщение:
+
+{question}
+
+================================
+
+
+"""
+
+    # Get printer handle
+    hprinter = win32print.OpenPrinter(printer_name)
+    try:
+        # Start a print job
+        job_info = win32print.StartDocPrinter(hprinter, 1, ("Ticket", None, "RAW"))
+        try:
+            win32print.StartPagePrinter(hprinter)
+            # Send text encoded as UTF-8 or CP1251
+            win32print.WritePrinter(hprinter, ticket_text.encode('cp1251', errors='replace'))
+            win32print.EndPagePrinter(hprinter)
+        finally:
+            win32print.EndDocPrinter(hprinter)
+    finally:
+        win32print.ClosePrinter(hprinter)
+
+    return True
+
+
 def format_ticket(printer, from_name, question):
-    """Format and print the ticket with Cyrillic support via raw ESC/POS commands"""
+    """Format and print the ticket using ESC/POS (for non-Windows printers)"""
     try:
         now = datetime.now()
         time_str = now.strftime("%H:%M")
         date_str = now.strftime("%d.%m.%Y")
-
-        # Try to set Cyrillic codepage via raw ESC/POS command
-        # ESC t n - select character code table
-        # Try different codepage numbers for Cyrillic:
-        # 17 = CP866 (DOS Cyrillic)
-        # 46 = CP1251 (Windows Cyrillic)
-        # 6 = ISO-8859-5
-        for codepage in [17, 46, 6, 38, 39, 40]:
-            try:
-                printer._raw(bytes([0x1B, 0x74, codepage]))  # ESC t n
-                logger.info(f"Set codepage to {codepage}")
-                break
-            except Exception:
-                continue
 
         # Print ticket
         printer.set(align='center', font='a', width=2, height=2, bold=True)
@@ -184,30 +230,19 @@ def format_ticket(printer, from_name, question):
         printer.text("================================\n")
 
         printer.set(align='left', font='a', width=1, height=1, bold=True)
-        # Encode text to CP866 and send
-        try:
-            from_text = f"От: {from_name}\n"
-            printer._raw(from_text.encode('cp866', errors='replace'))
-        except Exception:
-            printer.text(f"From: {from_name}\n")
+        printer.text(f"From: {from_name}\n")
 
         printer.set(align='left', font='a', width=1, height=1, bold=False)
-        printer.text(f"Vremya: {time_str}\n")
-        printer.text(f"Data: {date_str}\n")
+        printer.text(f"Time: {time_str}\n")
+        printer.text(f"Date: {date_str}\n")
 
         printer.text("--------------------------------\n")
 
         printer.set(align='left', font='a', width=1, height=1, bold=True)
-        try:
-            printer._raw("Сообщение:\n".encode('cp866', errors='replace'))
-        except Exception:
-            printer.text("Message:\n")
+        printer.text("Message:\n")
 
         printer.set(align='left', font='a', width=1, height=1, bold=False)
-        try:
-            printer._raw(f"{question}\n".encode('cp866', errors='replace'))
-        except Exception:
-            printer.text(f"{question}\n")
+        printer.text(f"{question}\n")
 
         printer.text("================================\n")
         printer.text("\n\n")
@@ -216,8 +251,6 @@ def format_ticket(printer, from_name, question):
         return True
     except Exception as e:
         logger.error(f"Error printing ticket: {e}")
-        import traceback
-        traceback.print_exc()
         return False
 
 @app.route('/')
@@ -236,24 +269,31 @@ def submit_ticket():
         if not question.strip():
             return jsonify({'success': False, 'error': 'Question/Comment cannot be empty'}), 400
 
-        printer = get_printer()
+        # Use Windows GDI printing for Windows printers (supports Cyrillic)
+        if PRINTER_TYPE == 'windows' and WINDOWS_GDI_AVAILABLE:
+            try:
+                success = print_ticket_windows_gdi(WINDOWS_PRINTER_NAME, from_name, question)
+            except Exception as e:
+                logger.error(f"Windows GDI printing failed: {e}")
+                success = False
+        else:
+            # Use ESC/POS for other printer types
+            printer = get_printer()
 
-        if printer is None:
-            return jsonify({'success': False, 'error': 'Printer not available'}), 500
+            if printer is None:
+                return jsonify({'success': False, 'error': 'Printer not available'}), 500
 
-        try:
-            # Open printer job (required for Windows printer)
-            if PRINTER_TYPE == 'windows':
-                printer.open()
+            try:
+                if PRINTER_TYPE == 'windows':
+                    printer.open()
 
-            success = format_ticket(printer, from_name, question)
+                success = format_ticket(printer, from_name, question)
 
-            # Close printer job
-            if PRINTER_TYPE == 'windows':
-                printer.close()
-        except Exception as e:
-            logger.error(f"Printer operation failed: {e}")
-            success = False
+                if PRINTER_TYPE == 'windows':
+                    printer.close()
+            except Exception as e:
+                logger.error(f"Printer operation failed: {e}")
+                success = False
 
         if success:
             logger.info(f"Ticket printed successfully from: {from_name}")
