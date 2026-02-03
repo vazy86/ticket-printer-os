@@ -177,19 +177,15 @@ def print_ticket_windows_gdi(printer_name, from_name, question):
     time_str = now.strftime("%H:%M")
     date_str = now.strftime("%d.%m.%Y")
 
-    # Create the ticket lines
+    # Create the ticket lines (compact format)
     lines = [
         "================================",
-        "           TICKET",
+        "          TICKET",
         "================================",
-        "",
         f"От: {from_name}",
-        f"Время: {time_str}",
-        f"Дата: {date_str}",
-        "",
+        f"Время: {time_str}  Дата: {date_str}",
         "--------------------------------",
         "Сообщение:",
-        "",
     ]
 
     # Wrap question text
@@ -197,12 +193,7 @@ def print_ticket_windows_gdi(printer_name, from_name, question):
     question_lines = wrapper.wrap(question) if question else [""]
     lines.extend(question_lines)
 
-    lines.extend([
-        "",
-        "================================",
-        "",
-        "",
-    ])
+    lines.append("================================")
 
     # Create a device context for the printer
     hdc = win32ui.CreateDC()
@@ -212,20 +203,20 @@ def print_ticket_windows_gdi(printer_name, from_name, question):
     hdc.StartDoc("Ticket")
     hdc.StartPage()
 
-    # Create a font (Courier New for monospace, supports Cyrillic)
+    # Create a BOLD font (weight=700 for bold, larger height for visibility)
     font = win32ui.CreateFont({
         "name": "Courier New",
-        "height": 32,
-        "weight": 400,
+        "height": 40,
+        "weight": 700,  # Bold
     })
     hdc.SelectObject(font)
 
-    # Print each line
-    y = 10
-    line_height = 36
+    # Print each line with tighter spacing
+    y = 5
+    line_height = 42
 
     for line in lines:
-        hdc.TextOut(10, y, line)
+        hdc.TextOut(5, y, line)
         y += line_height
 
     # End the page and document
